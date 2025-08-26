@@ -10,6 +10,7 @@ import Vision
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import PhotosUI
+import Photos
 import AVFoundation
 
 // アドバイスの種類を定義
@@ -51,38 +52,210 @@ struct CompositionEvaluation {
 struct SimpleCameraView: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let onImageCaptured: (UIImage) -> Void
-    
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.delegate = context.coordinator
-        picker.sourceType = .camera
-        picker.allowsEditing = false
-        return picker
-    }
-    
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: SimpleCameraView
-        
-        init(_ parent: SimpleCameraView) {
-            self.parent = parent
-        }
-        
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            if let image = info[.originalImage] as? UIImage {
-                parent.onImageCaptured(image)
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let vc = CameraViewController()
+        vc.onImageCaptured = { image in
+            DispatchQueue.main.async {
+                onImageCaptured(image)
+                isPresented = false
             }
-            parent.isPresented = false
         }
+        vc.onCancel = {
+            DispatchQueue.main.async {
+                isPresented = false
+            }
+        }
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    class Coordinator: NSObject {
+        let parent: SimpleCameraView
+        init(_ parent: SimpleCameraView) { self.parent = parent }
+    }
+}
+
+// カスタムカメラビューコントローラ（プレビュー上にグリッドを描画）
+class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
+    var onImageCaptured: ((UIImage) -> Void)?
+    var onCancel: (() -> Void)?
+
+    private let session = AVCaptureSession()
+    private let photoOutput = AVCapturePhotoOutput()
+    private var previewLayer: AVCaptureVideoPreviewLayer!
+
+    // 複数レイヤーに分割して描画
+    private let thirdsLayer = CAShapeLayer()
+    private let cornerLayer = CAShapeLayer()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        configureSession()
+        configurePreview()
+        configureUI()
+
+        // セッションの実行は UI をブロックしないようにバックグラウンドで開始
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.session.startRunning()
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // セッション停止もバックグラウンドで実行
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            self?.session.stopRunning()
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer.frame = view.bounds
+        // フレームを更新してからパスを再計算
+        thirdsLayer.frame = view.bounds
+        cornerLayer.frame = view.bounds
+        updateGridPath()
+    }
+
+    private func configureSession() {
+        session.beginConfiguration()
+        session.sessionPreset = .photo
+
+        // カメラ入力
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+              let input = try? AVCaptureDeviceInput(device: device),
+              session.canAddInput(input) else {
+            session.commitConfiguration()
+            return
+        }
+        session.addInput(input)
+
+        // 写真出力
+        if session.canAddOutput(photoOutput) {
+            session.addOutput(photoOutput)
+            photoOutput.isHighResolutionCaptureEnabled = true
+        }
+
+        session.commitConfiguration()
+    }
+
+    private func configurePreview() {
+        previewLayer = AVCaptureVideoPreviewLayer(session: session)
+        previewLayer.videoGravity = .resizeAspectFill
+        previewLayer.frame = view.bounds
+        view.layer.addSublayer(previewLayer)
+
+        // 三分割線レイヤー
+        thirdsLayer.frame = view.bounds
+        thirdsLayer.fillColor = UIColor.clear.cgColor
+        thirdsLayer.strokeColor = UIColor.white.withAlphaComponent(0.6).cgColor
+        thirdsLayer.lineWidth = 1.0
+        view.layer.addSublayer(thirdsLayer)
+
+        // コーナーマーカー
+        cornerLayer.frame = view.bounds
+        cornerLayer.fillColor = UIColor.clear.cgColor
+        cornerLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
+        cornerLayer.lineWidth = 2.0
+        view.layer.addSublayer(cornerLayer)
+
+        updateGridPath()
+    }
+
+    private func updateGridPath() {
+        let w = thirdsLayer.bounds.width
+        let h = thirdsLayer.bounds.height
+
+        // 三分割線
+        let thirdsPath = UIBezierPath()
+        thirdsPath.move(to: CGPoint(x: w / 3.0, y: 0))
+        thirdsPath.addLine(to: CGPoint(x: w / 3.0, y: h))
+        thirdsPath.move(to: CGPoint(x: w * 2.0 / 3.0, y: 0))
+        thirdsPath.addLine(to: CGPoint(x: w * 2.0 / 3.0, y: h))
+        thirdsPath.move(to: CGPoint(x: 0, y: h / 3.0))
+        thirdsPath.addLine(to: CGPoint(x: w, y: h / 3.0))
+        thirdsPath.move(to: CGPoint(x: 0, y: h * 2.0 / 3.0))
+        thirdsPath.addLine(to: CGPoint(x: w, y: h * 2.0 / 3.0))
+        thirdsLayer.path = thirdsPath.cgPath
+
+        // コーナーマーカー（四隅の短い線）
+        let cornerPath = UIBezierPath()
+        let markerLen: CGFloat = min(w, h) * 0.06 // 画面サイズに応じた長さ
+        // 左上
+        cornerPath.move(to: CGPoint(x: 8, y: markerLen + 8))
+        cornerPath.addLine(to: CGPoint(x: 8, y: 8))
+        cornerPath.addLine(to: CGPoint(x: markerLen + 8, y: 8))
+        // 右上
+        cornerPath.move(to: CGPoint(x: w - 8, y: markerLen + 8))
+        cornerPath.addLine(to: CGPoint(x: w - 8, y: 8))
+        cornerPath.addLine(to: CGPoint(x: w - markerLen - 8, y: 8))
+        // 左下
+        cornerPath.move(to: CGPoint(x: 8, y: h - markerLen - 8))
+        cornerPath.addLine(to: CGPoint(x: 8, y: h - 8))
+        cornerPath.addLine(to: CGPoint(x: markerLen + 8, y: h - 8))
+        // 右下
+        cornerPath.move(to: CGPoint(x: w - 8, y: h - markerLen - 8))
+        cornerPath.addLine(to: CGPoint(x: w - 8, y: h - 8))
+        cornerPath.addLine(to: CGPoint(x: w - markerLen - 8, y: h - 8))
+        cornerLayer.path = cornerPath.cgPath
+    }
+
+    func configureUI() {
+        // キャプチャボタン
+        let captureButton = UIButton(type: .system)
+        captureButton.translatesAutoresizingMaskIntoConstraints = false
+        captureButton.backgroundColor = UIColor.white.withAlphaComponent(0.9)
+        captureButton.layer.cornerRadius = 32
+        captureButton.addTarget(self, action: #selector(captureTapped), for: .touchUpInside)
+        view.addSubview(captureButton)
+
+        // キャンセルボタン
+        let cancelButton = UIButton(type: .system)
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        cancelButton.setTitle("キャンセル", for: .normal)
+        cancelButton.setTitleColor(.white, for: .normal)
+        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        view.addSubview(cancelButton)
+
+        NSLayoutConstraint.activate([
+            captureButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            captureButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
+            captureButton.widthAnchor.constraint(equalToConstant: 64),
+            captureButton.heightAnchor.constraint(equalToConstant: 64),
+
+            cancelButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            cancelButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
+        ])
+    }
+
+    @objc private func captureTapped() {
+        let settings = AVCapturePhotoSettings()
+        settings.isHighResolutionPhotoEnabled = true
+        if photoOutput.availablePhotoCodecTypes.contains(.jpeg) {
+            settings.livePhotoVideoCodecType = .jpeg
+        }
+        photoOutput.capturePhoto(with: settings, delegate: self)
+    }
+
+    @objc private func cancelTapped() {
+        onCancel?()
+    }
+
+    // MARK: - AVCapturePhotoCaptureDelegate
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        if let error = error {
+            print("Photo capture error: \(error)")
+            return
+        }
+        guard let data = photo.fileDataRepresentation(), let image = UIImage(data: data) else { return }
         
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.isPresented = false
-        }
+        // 撮影した画像をそのまま使用（リサイズなし）
+        onImageCaptured?(image)
     }
 }
 
@@ -149,8 +322,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingCamera) {
             SimpleCameraView(isPresented: $showingCamera) { image in
+                // 撮影した画像をそのまま使用（リサイズなし）
                 originalImage = image
-                unprocessedOriginalImage = image  // 未加工の画像を保存
+                unprocessedOriginalImage = image
                 resetAnalysisData()
                 
                 if autoAnalyzeAfterCapture {
@@ -166,8 +340,9 @@ struct ContentView: View {
                     if let data = try? await newItem.loadTransferable(type: Data.self) {
                         if let uiImage = UIImage(data: data) {
                             await MainActor.run {
+                                // 選択した画像をそのまま使用（リサイズなし）
                                 originalImage = uiImage
-                                unprocessedOriginalImage = uiImage  // 未加工の画像を保存
+                                unprocessedOriginalImage = uiImage
                                 resetAnalysisData()
                             }
                         }
@@ -267,7 +442,8 @@ struct ContentView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color(.systemGray6))
-                    .frame(height: 320)
+                    .aspectRatio(originalImage?.size ?? CGSize(width: 16, height: 9), contentMode: .fit)
+                    .frame(maxHeight: 320)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(Color(.separator), lineWidth: 1)
@@ -289,8 +465,12 @@ struct ContentView: View {
                         centroids: centroids,
                         visualAdvices: visualAdvices
                     )
+                    //.aspectRatio(image.size, contentMode: .fit)
+                    //.frame(maxHeight: 320)
+                    //.clipped()
                 } else {
                     ModernPlaceholderView()
+                        .frame(height: 320)
                 }
             }
         }
@@ -452,14 +632,48 @@ struct ContentView: View {
             if let evaluation = compositionEvaluation {
                 compositionResultCard(evaluation)
             }
-            
+
             if !boundingRects.isEmpty {
                 detectionResultCard
             }
-            
+
             if originalImage != nil {
+                saveButton
                 resetButton
             }
+        }
+    }
+
+    @ViewBuilder
+    private var saveButton: some View {
+        Button(action: {
+            // 表示中の画像を優先的に保存
+            let imageToSave: UIImage?
+            if showBinaryImage {
+                imageToSave = binaryImage
+            } else if showOriginalImage {
+                imageToSave = unprocessedOriginalImage ?? originalImage
+            } else {
+                imageToSave = originalImage
+            }
+            saveImageToPhotos(imageToSave)
+        }) {
+            HStack {
+                Image(systemName: "square.and.arrow.down")
+                Text("写真を保存")
+                    .fontWeight(.semibold)
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(
+                LinearGradient(
+                    colors: [.green, .blue],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .cornerRadius(12)
         }
     }
     
@@ -571,7 +785,7 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
             }
             
-            if boundingRects.count > 1 {
+            if boundingRects.count > 1 || boundingRects.count == 0 {
                 HStack {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
@@ -615,31 +829,92 @@ struct ContentView: View {
     
     // MARK: - Functions
     
+    // 処理用の低解像度画像を作成する関数
+    func createProcessingImage(from originalImage: UIImage, maxDimension: CGFloat = 800) -> UIImage {
+        let originalSize = originalImage.size
+        let maxOriginalDimension = max(originalSize.width, originalSize.height)
+        
+        print("📊 元画像サイズ: \(Int(originalSize.width)) × \(Int(originalSize.height)) px")
+        
+        // 既に十分小さい場合はそのまま返す
+        if maxOriginalDimension <= maxDimension {
+            print("✅ 画像サイズが十分小さいため、リサイズをスキップ")
+            return originalImage
+        }
+        
+        // アスペクト比を保持しながらリサイズ
+        let scale = maxDimension / maxOriginalDimension
+        let newSize = CGSize(
+            width: originalSize.width * scale,
+            height: originalSize.height * scale
+        )
+        
+        print("🔄 処理用サイズ: \(Int(newSize.width)) × \(Int(newSize.height)) px (縮小率: \(Int((1.0 - scale) * 100))%)")
+        
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let resizedImage = renderer.image { _ in
+            originalImage.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        
+        return resizedImage
+    }
+    
     func performSaliencyAnalysis() {
         guard let image = originalImage, let cgImage = image.cgImage else { return }
         
         isAnalyzing = true
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
+        // 処理用の低解像度画像を作成（最大800px）
+        let processingImage = createProcessingImage(from: image, maxDimension: 800)
+        guard let processingCGImage = processingImage.cgImage else {
+            isAnalyzing = false
+            return
+        }
+        
         let request = VNGenerateObjectnessBasedSaliencyImageRequest()
         
-        // 画像の向きを考慮してVisionリクエストのオプションを設定
-        let orientation = CGImagePropertyOrientation(image.imageOrientation)
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+        // 処理用画像の向きを考慮してVisionリクエストのオプションを設定
+        let orientation = CGImagePropertyOrientation(processingImage.imageOrientation)
+        let handler = VNImageRequestHandler(cgImage: processingCGImage, orientation: orientation, options: [:])
         
         DispatchQueue.global(qos: .userInitiated).async {
+            let visionStartTime = CFAbsoluteTimeGetCurrent()
             do {
                 try handler.perform([request])
+                let visionEndTime = CFAbsoluteTimeGetCurrent()
+                print("🔍 Vision分析時間: \(String(format: "%.3f", visionEndTime - visionStartTime))秒")
+                
                 DispatchQueue.main.async {
                     self.isAnalyzing = false
                     guard let observation = request.results?.first as? VNSaliencyImageObservation else {
                         return
                     }
                     
-                    if let heatmapImage = self.createSaliencyHeatmapImage(from: observation),
-                       let binaryImage = self.binarizeAlphaWithKernel(heatmapImage, threshold: 0.01) {
-                        self.saliencyHeatMapImage = binaryImage
-                        self.binaryImage = binaryImage
+                    let processingStartTime = CFAbsoluteTimeGetCurrent()
+                    
+                    // 低解像度で顕著性マップを作成し、バウンディングボックス検出も低解像度で実行
+                    if let heatmapImage = self.createSaliencyHeatmapImage(from: observation, targetSize: processingImage.size),
+                       let binaryImage = self.binarizeAlphaWithKernel(heatmapImage, threshold: 0.05) {
                         
-                        self.detectBoundingRects(from: binaryImage)
+                        // 表示用に元画像サイズの顕著性マップを作成
+                        if let displayHeatmap = self.createSaliencyHeatmapImage(from: observation, targetSize: image.size),
+                           let displayBinary = self.binarizeAlphaWithKernel(displayHeatmap, threshold: 0.05) {
+                            self.saliencyHeatMapImage = displayBinary
+                            self.binaryImage = displayBinary
+                        } else {
+                            // フォールバック：低解像度画像をスケールアップ
+                            self.saliencyHeatMapImage = binaryImage
+                            self.binaryImage = binaryImage
+                        }
+                        
+                        // 低解像度画像でバウンディングボックス検出を実行し、結果を元画像サイズにスケール
+                        self.detectBoundingRects(from: binaryImage, originalImageSize: image.size, processingImageSize: processingImage.size)
+                        
+                        let processingEndTime = CFAbsoluteTimeGetCurrent()
+                        let totalTime = processingEndTime - startTime
+                        print("⚡ 後処理時間: \(String(format: "%.3f", processingEndTime - processingStartTime))秒")
+                        print("🎯 総処理時間: \(String(format: "%.3f", totalTime))秒")
                         
                         if self.autoAnalyzeAfterCapture {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -658,7 +933,7 @@ struct ContentView: View {
         }
     }
     
-    func createSaliencyHeatmapImage(from observation: VNSaliencyImageObservation) -> UIImage? {
+    func createSaliencyHeatmapImage(from observation: VNSaliencyImageObservation, targetSize: CGSize) -> UIImage? {
         let pixelBuffer = observation.pixelBuffer
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         
@@ -675,8 +950,14 @@ struct ContentView: View {
         colorMatrixFilter.aVector = vector
         
         guard let outputCIImage = colorMatrixFilter.outputImage else { return nil }
+        
+        // 元画像のサイズ（targetSize）にリサイズ
+        let scaleX = targetSize.width / outputCIImage.extent.width
+        let scaleY = targetSize.height / outputCIImage.extent.height
+        let scaledImage = outputCIImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        
         let context = CIContext()
-        guard let cgImage = context.createCGImage(outputCIImage, from: outputCIImage.extent) else { return nil }
+        guard let cgImage = context.createCGImage(scaledImage, from: CGRect(origin: .zero, size: targetSize)) else { return nil }
         return UIImage(cgImage: cgImage)
     }
     
@@ -707,7 +988,7 @@ struct ContentView: View {
         return nil
     }
     
-    func detectBoundingRects(from binaryImage: UIImage) {
+    func detectBoundingRects(from binaryImage: UIImage, originalImageSize: CGSize, processingImageSize: CGSize) {
         guard let cgImage = binaryImage.cgImage else { return }
         
         let width = cgImage.width
@@ -736,10 +1017,14 @@ struct ContentView: View {
         var detectedRects: [CGRect] = []
         var detectedCentroids: [CGPoint] = []
         
+        // スケール計算（処理画像 → 元画像）
+        let scaleX = originalImageSize.width / processingImageSize.width
+        let scaleY = originalImageSize.height / processingImageSize.height
+        
         for y in 0..<height {
             for x in 0..<width {
                 if !visited[y][x] && isWhitePixel(pixelData: pixelData, x: x, y: y, width: width) {
-                    let (boundingRect, centroid) = getBoundingRectAndCentroid(
+                    let (boundingRect, centroid, pixelCount) = getBoundingRectAndCentroid(
                         pixelData: pixelData,
                         startX: x,
                         startY: y,
@@ -748,19 +1033,22 @@ struct ContentView: View {
                         visited: &visited
                     )
                     
-                    if boundingRect.width > 5 && boundingRect.height > 5 {
-                        // VNGenerateObjectnessBasedSaliencyImageRequestの座標系に対応
-                        // Y軸を反転して正しい向きに修正
+                    // 最小サイズのフィルタリング（処理解像度基準）
+                    let minSize = CGFloat(max(2, min(width, height) / 10)) // 処理画像に応じて調整、これより大きいバウンディングボックスを検出
+                    let minPixelCount = max(10, (width * height) / 16000) // 処理画像に応じて調整
+                    
+                    if boundingRect.width > minSize && boundingRect.height > minSize && pixelCount > minPixelCount {
+                        // 結果を元画像サイズにスケールアップ
                         let scaledRect = CGRect(
-                            x: boundingRect.minX * 300 / CGFloat(width),
-                            y: (CGFloat(height) - boundingRect.maxY) * 300 / CGFloat(height), // Y軸反転
-                            width: boundingRect.width * 300 / CGFloat(width),
-                            height: boundingRect.height * 300 / CGFloat(height)
+                            x: boundingRect.minX * scaleX,
+                            y: boundingRect.minY * scaleY,
+                            width: boundingRect.width * scaleX,
+                            height: boundingRect.height * scaleY
                         )
                         
                         let scaledCentroid = CGPoint(
-                            x: centroid.x * 300 / CGFloat(width),
-                            y: (CGFloat(height) - centroid.y) * 300 / CGFloat(height) // Y軸反転
+                            x: centroid.x * scaleX,
+                            y: centroid.y * scaleY
                         )
                         
                         detectedRects.append(scaledRect)
@@ -782,10 +1070,11 @@ struct ContentView: View {
         let green = pixelData[pixelIndex + 1]
         let blue = pixelData[pixelIndex + 2]
         
-        return red > 200 && green > 200 && blue > 200
+        // 二値化画像では純粋な白（255）である必要がある
+        return red >= 250 && green >= 250 && blue >= 250
     }
     
-    func getBoundingRectAndCentroid(pixelData: [UInt8], startX: Int, startY: Int, width: Int, height: Int, visited: inout [[Bool]]) -> (CGRect, CGPoint) {
+    func getBoundingRectAndCentroid(pixelData: [UInt8], startX: Int, startY: Int, width: Int, height: Int, visited: inout [[Bool]]) -> (CGRect, CGPoint, Int) {
         var minX = startX, maxX = startX, minY = startY, maxY = startY
         var sumX = 0, sumY = 0, pixelCount = 0
         var stack: [(Int, Int)] = [(startX, startY)]
@@ -824,13 +1113,13 @@ struct ContentView: View {
             y: pixelCount > 0 ? CGFloat(sumY) / CGFloat(pixelCount) : CGFloat(minY)
         )
         
-        return (boundingRect, centroid)
+        return (boundingRect, centroid, pixelCount)
     }
     
     func evaluateComposition() {
-        guard !centroids.isEmpty else { return }
+        guard !centroids.isEmpty, let image = originalImage else { return }
         
-        let imageSize = CGSize(width: 300, height: 300)
+        let imageSize = CGSize(width: image.size.width, height: image.size.height)
         let mainCentroid = centroids[0]
         
         let ruleOfThirdsScore = evaluateRuleOfThirds(centroid: mainCentroid, imageSize: imageSize)
@@ -947,15 +1236,53 @@ struct ContentView: View {
         resetAnalysisData()
         selectedItem = nil
     }
+
+    // 写真を写真ライブラリに保存する
+    func saveImageToPhotos(_ image: UIImage?) {
+        guard let image = image else {
+            alertMessage = "保存する画像がありません"
+            showingAlert = true
+            return
+        }
+
+        // 写真ライブラリのアクセス権を確認し、保存する
+        PHPhotoLibrary.requestAuthorization { status in
+            switch status {
+            case .authorized, .limited:
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }) { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            alertMessage = "写真を保存しました"
+                        } else {
+                            alertMessage = "写真の保存に失敗しました: \(error?.localizedDescription ?? "不明なエラー")"
+                        }
+                        showingAlert = true
+                    }
+                }
+            case .denied, .restricted, .notDetermined:
+                DispatchQueue.main.async {
+                    alertMessage = "写真ライブラリへのアクセスが許可されていません"
+                    showingAlert = true
+                }
+            @unknown default:
+                DispatchQueue.main.async {
+                    alertMessage = "予期しないエラー"
+                    showingAlert = true
+                }
+            }
+        }
+    }
 }
 
 // MARK: - 視覚的アドバイス生成関数
 extension ContentView {
     
     func generateVisualAdvice() {
-        guard !centroids.isEmpty else { return }
+        guard !centroids.isEmpty, let image = originalImage else { return }
         
-        let imageSize = CGSize(width: 300, height: 300)
+        let imageSize = CGSize(width: image.size.width, height: image.size.height)
         let mainCentroid = centroids[0]
         var advices: [VisualAdvice] = []
         
@@ -1347,10 +1674,10 @@ struct EnhancedImageDisplayView: View {
                 )
             }
         }
-        .overlay(BoundingRectsOverlay(show: showBoundingRects, rects: boundingRects))
+        .overlay(BoundingRectsOverlay(show: showBoundingRects, rects: boundingRects, imageSize: originalImage.size))
         .overlay(CompositionGridOverlay(show: showCompositionGrid))
-        .overlay(CentroidsOverlay(show: showCentroids, centroids: centroids))
-        .overlay(VisualAdviceOverlay(show: showVisualAdvice, advices: visualAdvices))
+        .overlay(CentroidsOverlay(show: showCentroids, centroids: centroids, imageSize: originalImage.size))
+        .overlay(VisualAdviceOverlay(show: showVisualAdvice, advices: visualAdvices, imageSize: originalImage.size))
     }
 }
 
@@ -1359,329 +1686,265 @@ struct EnhancedImageDisplayView: View {
 
 struct UnprocessedImageView: View {
     let unprocessedImage: UIImage
-    
+
     var body: some View {
         Image(uiImage: unprocessedImage)
             .resizable()
-            .scaledToFit()
-            .frame(width: 300, height: 300)
+            .aspectRatio(contentMode: .fit)
     }
 }
 
 struct BinaryImageView: View {
     let binaryImage: UIImage
-    
+
     var body: some View {
         Image(uiImage: binaryImage)
             .resizable()
-            .scaledToFit()
-            .frame(width: 300, height: 300)
+            .aspectRatio(contentMode: .fit)
     }
 }
 
 struct OriginalImageView: View {
     let originalImage: UIImage
     let saliencyHeatMapImage: UIImage?
-    
+
     var body: some View {
-        Image(uiImage: originalImage)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 300, height: 300)
-            .overlay(HeatmapOverlay(heatmapImage: saliencyHeatMapImage))
+        ZStack {
+            Image(uiImage: originalImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+
+            HeatmapOverlay(heatmapImage: saliencyHeatMapImage)
+        }
     }
 }
+               
+
+
+
 
 struct HeatmapOverlay: View {
     let heatmapImage: UIImage?
-    
+
     var body: some View {
         Group {
             if let heatmapImage = heatmapImage {
                 Image(uiImage: heatmapImage)
                     .resizable()
-                    .scaledToFit()
+                    .aspectRatio(contentMode: .fit)
                     .blendMode(.multiply)
             }
         }
     }
 }
 
+// Overlays used on top of the original image display. These map the internal analysis coordinates to the actual view size.
 struct BoundingRectsOverlay: View {
     let show: Bool
-    let rects: [CGRect]
-    
+    let rects: [CGRect] // in original image coordinate space
+    let imageSize: CGSize
+
     var body: some View {
-        Group {
+        GeometryReader { geo in
             if show {
-                ForEach(0..<rects.count, id: \.self) { index in
-                    Rectangle()
-                        .stroke(Color.red, lineWidth: 2)
-                        .frame(width: rects[index].width, height: rects[index].height)
-                        .position(x: rects[index].midX, y: rects[index].midY)
+                let scaleX = geo.size.width / imageSize.width
+                let scaleY = geo.size.height / imageSize.height
+
+                ForEach(Array(rects.enumerated()), id: \.offset) { _, rect in
+                    // Map rect from original image size -> view size
+                    let r = CGRect(x: rect.origin.x * scaleX,
+                                   y: rect.origin.y * scaleY,
+                                   width: rect.size.width * scaleX,
+                                   height: rect.size.height * scaleY)
+
+                    Path { path in
+                        path.addRect(r)
+                    }
+                    .stroke(Color.yellow.opacity(0.9), lineWidth: 2)
+                    .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 1)
                 }
             }
         }
+        .allowsHitTesting(false)
     }
 }
 
 struct CompositionGridOverlay: View {
     let show: Bool
-    
+
     var body: some View {
-        Group {
+        GeometryReader { geo in
             if show {
-                ModernCompositionGridView()
+                let w = geo.size.width
+                let h = geo.size.height
+
+                ZStack {
+                    // 三分割法の線
+                    Path { path in
+                        path.move(to: CGPoint(x: w / 3, y: 0))
+                        path.addLine(to: CGPoint(x: w / 3, y: h))
+                        path.move(to: CGPoint(x: w * 2 / 3, y: 0))
+                        path.addLine(to: CGPoint(x: w * 2 / 3, y: h))
+                        path.move(to: CGPoint(x: 0, y: h / 3))
+                        path.addLine(to: CGPoint(x: w, y: h / 3))
+                        path.move(to: CGPoint(x: 0, y: h * 2 / 3))
+                        path.addLine(to: CGPoint(x: w, y: h * 2 / 3))
+                    }
+                    .stroke(Color.white.opacity(0.85), lineWidth: 1.2)
+                    .blendMode(.normal)
+                    .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
+
+                    // 三分割法の交点
+                    ForEach(0..<4, id: \.self) { index in
+                        let points = [
+                            CGPoint(x: w / 3, y: h / 3),
+                            CGPoint(x: w * 2 / 3, y: h / 3),
+                            CGPoint(x: w / 3, y: h * 2 / 3),
+                            CGPoint(x: w * 2 / 3, y: h * 2 / 3)
+                        ]
+                        Circle()
+                            .fill(Color.yellow)
+                            .frame(width: min(w,h) * 0.025, height: min(w,h) * 0.025)
+                            .overlay(
+                                Circle().stroke(Color.white, lineWidth: 1.0)
+                            )
+                            .position(points[index])
+                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                    }
+
+                    // 中央点
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: min(w,h) * 0.03, height: min(w,h) * 0.03)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 1.0))
+                        .position(x: w / 2, y: h / 2)
+                        .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+
+                    // 凡例
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.yellow).frame(width: 6, height: 6)
+                            Text("三分割点").font(.caption2).fontWeight(.medium)
+                        }
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.red).frame(width: 6, height: 6)
+                            Text("中央点").font(.caption2).fontWeight(.medium)
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.black.opacity(0.7))
+                    )
+                    .position(x: w * 0.85, y: h * 0.1)
+                }
             }
         }
+        .allowsHitTesting(false)
     }
 }
 
 struct CentroidsOverlay: View {
     let show: Bool
-    let centroids: [CGPoint]
-    
+    let centroids: [CGPoint] // in original image coordinate space
+    let imageSize: CGSize
+
     var body: some View {
-        Group {
+        GeometryReader { geo in
             if show {
-                ForEach(0..<centroids.count, id: \.self) { index in
-                    ModernCentroidPoint(
-                        position: centroids[index],
-                        label: "(\(Int(centroids[index].x)), \(Int(centroids[index].y)))"
-                    )
+                let scaleX = geo.size.width / imageSize.width
+                let scaleY = geo.size.height / imageSize.height
+
+                ForEach(Array(centroids.enumerated()), id: \.offset) { _, pt in
+                    let mapped = CGPoint(x: pt.x * scaleX, y: pt.y * scaleY)
+                    Circle()
+                        .fill(Color.blue)//重心点の色
+                        .frame(width: min(geo.size.width, geo.size.height) * 0.03,
+                               height: min(geo.size.width, geo.size.height) * 0.03)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 1))
+                        .position(mapped)
+                        .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
                 }
             }
         }
+        .allowsHitTesting(false)
     }
 }
 
 struct VisualAdviceOverlay: View {
     let show: Bool
     let advices: [VisualAdvice]
-    
+    let imageSize: CGSize
+
     var body: some View {
-        Group {
+        GeometryReader { geo in
             if show {
-                ForEach(0..<advices.count, id: \.self) { index in
-                    let advice = advices[index]
-                    
-                    if let targetPosition = advice.targetPosition,
-                       let direction = advice.arrowDirection {
-                        
-                        TargetPositionMarker(position: targetPosition, advice: advice)
-                        
-                        DirectionalArrow(
-                            from: advice.currentPosition,
-                            to: targetPosition,
-                            direction: direction,
-                            intensity: advice.intensity
-                        )
-                        
-                        AdviceTextBubble(
-                            message: advice.message,
-                            position: CGPoint(
-                                x: (advice.currentPosition.x + targetPosition.x) / 2,
-                                y: (advice.currentPosition.y + targetPosition.y) / 2 - 30
-                            ),
-                            intensity: advice.intensity
-                        )
+                let scaleX = geo.size.width / imageSize.width
+                let scaleY = geo.size.height / imageSize.height
+
+                ForEach(Array(advices.enumerated()), id: \.offset) { index, advice in
+                    // Draw arrow from currentPosition to targetPosition (if available)
+                    if let target = advice.targetPosition {
+                        let from = CGPoint(x: advice.currentPosition.x * scaleX,
+                                           y: advice.currentPosition.y * scaleY)
+                        let to = CGPoint(x: target.x * scaleX, y: target.y * scaleY)
+
+                        ArrowShape(from: from, to: to)
+                            .stroke(Color.green.opacity(0.95), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                            .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
+
+                        // Message bubble near the arrow head
+                        Text(advice.message)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .padding(6)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.7)))
+                            .foregroundColor(.white)
+                            .position(x: to.x, y: max(12, to.y - 24 - CGFloat(index) * 18))
+                    } else {
+                        // If no explicit target, show a hint near the current position
+                        let pos = CGPoint(x: advice.currentPosition.x * scaleX, y: advice.currentPosition.y * scaleY)
+                        Text(advice.message)
+                            .font(.caption2)
+                            .padding(6)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.7)))
+                            .foregroundColor(.white)
+                            .position(x: pos.x, y: max(12, pos.y - 18))
                     }
                 }
             }
         }
+        .allowsHitTesting(false)
     }
 }
 
-struct TargetPositionMarker: View {
-    let position: CGPoint
-    let advice: VisualAdvice
-    
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(getColorForAdviceType(advice.type), lineWidth: 2)
-                .frame(width: 30, height: 30)
-                .scaleEffect(1.0 + sin(Date().timeIntervalSince1970 * 2) * 0.2)
-                .opacity(0.7)
-            
-            Circle()
-                .fill(getColorForAdviceType(advice.type))
-                .frame(width: 12, height: 12)
-        }
-        .position(position)
-    }
-    
-    func getColorForAdviceType(_ type: AdviceType) -> Color {
-        switch type {
-        case .moveToRuleOfThirds:
-            return .yellow
-        case .moveToCenterComposition:
-            return .red
-        default:
-            return .blue
-        }
-    }
-}
+// Small Shape for drawing an arrow with a triangular head
+struct ArrowShape: Shape {
+    var from: CGPoint
+    var to: CGPoint
 
-struct DirectionalArrow: View {
-    let from: CGPoint
-    let to: CGPoint
-    let direction: ArrowDirection
-    let intensity: Double
-    
-    var body: some View {
-        Path { path in
-            path.move(to: from)
-            path.addLine(to: to)
-            
-            let arrowLength: CGFloat = 15
-            let arrowAngle: Double = .pi / 6
-            let angle = atan2(to.y - from.y, to.x - from.x)
-            
-            let arrowEnd1 = CGPoint(
-                x: to.x - arrowLength * cos(angle - arrowAngle),
-                y: to.y - arrowLength * sin(angle - arrowAngle)
-            )
-            
-            let arrowEnd2 = CGPoint(
-                x: to.x - arrowLength * cos(angle + arrowAngle),
-                y: to.y - arrowLength * sin(angle + arrowAngle)
-            )
-            
-            path.move(to: to)
-            path.addLine(to: arrowEnd1)
-            path.move(to: to)
-            path.addLine(to: arrowEnd2)
-        }
-        .stroke(
-            Color.white.opacity(0.8 + intensity * 0.2),
-            lineWidth: 3
-        )
-        .shadow(color: .black, radius: 1, x: 1, y: 1)
-    }
-}
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: from)
+        path.addLine(to: to)
 
-struct AdviceTextBubble: View {
-    let message: String
-    let position: CGPoint
-    let intensity: Double
-    
-    var body: some View {
-        Text(message)
-            .font(.caption)
-            .foregroundColor(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(Color.black.opacity(0.7 + intensity * 0.2))
-            )
-            .overlay(
-                Capsule()
-                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
-            )
-            .position(position)
-            .scaleEffect(0.8 + intensity * 0.2)
-    }
-}
+        // Arrow head
+        let angle = atan2(to.y - from.y, to.x - from.x)
+        let headLength: CGFloat = 12
+        let headAngle: CGFloat = .pi / 6
 
-struct ModernCentroidPoint: View {
-    let position: CGPoint
-    let label: String
-    
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.blue)
-                .frame(width: 12, height: 12)
-                .overlay(
-                    Circle()
-                        .stroke(Color.white, lineWidth: 2)
-                )
-            
-            Text(label)
-                .font(.caption2)
-                .fontWeight(.medium)
-                .foregroundColor(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule()
-                        .fill(Color.blue)
-                )
-                .offset(x: 0, y: -20)
-        }
-        .position(position)
-    }
-}
+        let p1 = CGPoint(x: to.x - cos(angle - headAngle) * headLength,
+                         y: to.y - sin(angle - headAngle) * headLength)
+        let p2 = CGPoint(x: to.x - cos(angle + headAngle) * headLength,
+                         y: to.y - sin(angle + headAngle) * headLength)
 
-struct ModernCompositionGridView: View {
-    var body: some View {
-        ZStack {
-            // 三分割法の線
-            Path { path in
-                path.move(to: CGPoint(x: 100, y: 0))
-                path.addLine(to: CGPoint(x: 100, y: 300))
-                path.move(to: CGPoint(x: 200, y: 0))
-                path.addLine(to: CGPoint(x: 200, y: 300))
-                path.move(to: CGPoint(x: 0, y: 100))
-                path.addLine(to: CGPoint(x: 300, y: 100))
-                path.move(to: CGPoint(x: 0, y: 200))
-                path.addLine(to: CGPoint(x: 300, y: 200))
-            }
-            .stroke(Color.white.opacity(0.8), lineWidth: 1.5)
-            .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
-            
-            // 三分割法の交点
-            ForEach(0..<4, id: \.self) { index in
-                let points = [
-                    CGPoint(x: 100, y: 100),
-                    CGPoint(x: 200, y: 100),
-                    CGPoint(x: 100, y: 200),
-                    CGPoint(x: 200, y: 200)
-                ]
-                Circle()
-                    .fill(Color.yellow)
-                    .frame(width: 8, height: 8)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white, lineWidth: 1.5)
-                    )
-                    .position(points[index])
-                    .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-            }
-            
-            // 中央点
-            Circle()
-                .fill(Color.red)
-                .frame(width: 10, height: 10)
-                .overlay(
-                    Circle()
-                        .stroke(Color.white, lineWidth: 1.5)
-                )
-                .position(x: 150, y: 150)
-                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-            
-            // モダンな凡例
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Circle().fill(Color.yellow).frame(width: 8, height: 8)
-                    Text("三分割点").font(.caption2).fontWeight(.medium)
-                }
-                HStack(spacing: 6) {
-                    Circle().fill(Color.red).frame(width: 8, height: 8)
-                    Text("中央点").font(.caption2).fontWeight(.medium)
-                }
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.black.opacity(0.7))
-            )
-            .position(x: 240, y: 30)
-        }
+        path.move(to: p1)
+        path.addLine(to: to)
+        path.addLine(to: p2)
+
+        return path
     }
 }
 

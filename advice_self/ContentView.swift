@@ -1,3 +1,4 @@
+
 //
 //  ContentView.swift
 //  advice_self
@@ -52,7 +53,7 @@ struct CompositionEvaluation {
 struct SimpleCameraView: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let onImageCaptured: (UIImage) -> Void
-
+    
     func makeUIViewController(context: Context) -> UIViewController {
         let vc = CameraViewController()
         vc.onImageCaptured = { image in
@@ -68,11 +69,11 @@ struct SimpleCameraView: UIViewControllerRepresentable {
         }
         return vc
     }
-
+    
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
-
+    
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-
+    
     class Coordinator: NSObject {
         let parent: SimpleCameraView
         init(_ parent: SimpleCameraView) { self.parent = parent }
@@ -83,7 +84,7 @@ struct SimpleCameraView: UIViewControllerRepresentable {
 struct AssistCameraView: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let onImageCaptured: (UIImage) -> Void
-
+    
     func makeUIViewController(context: Context) -> UIViewController {
         let vc = AssistCameraViewController()
         vc.onImageCaptured = { image in
@@ -99,11 +100,11 @@ struct AssistCameraView: UIViewControllerRepresentable {
         }
         return vc
     }
-
+    
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
-
+    
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-
+    
     class Coordinator: NSObject {
         let parent: AssistCameraView
         init(_ parent: AssistCameraView) { self.parent = parent }
@@ -114,28 +115,28 @@ struct AssistCameraView: UIViewControllerRepresentable {
 class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     var onImageCaptured: ((UIImage) -> Void)?
     var onCancel: (() -> Void)?
-
+    
     private let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
     private var previewLayer: AVCaptureVideoPreviewLayer!
-
+    
     // 複数レイヤーに分割して描画
     private let thirdsLayer = CAShapeLayer()
     private let cornerLayer = CAShapeLayer()
-
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
         configureSession()
         configurePreview()
         configureUI()
-
+        
         // セッションの実行は UI をブロックしないようにバックグラウンドで開始
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.session.startRunning()
         }
     }
-
+    
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // セッション停止もバックグラウンドで実行
@@ -143,7 +144,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             self?.session.stopRunning()
         }
     }
-
+    
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer.frame = view.bounds
@@ -152,12 +153,12 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         cornerLayer.frame = view.bounds
         updateGridPath()
     }
-
+    
     private func configureSession() {
         session.beginConfiguration()
         // プレビューと撮影画像の範囲を一致させるため、プリセットを調整
         session.sessionPreset = .photo
-
+        
         // カメラ入力
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
               let input = try? AVCaptureDeviceInput(device: device),
@@ -166,7 +167,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             return
         }
         session.addInput(input)
-
+        
         // 写真出力
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
@@ -178,10 +179,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
                 photoOutput.maxPhotoQualityPrioritization = .balanced
             }
         }
-
+        
         session.commitConfiguration()
     }
-
+    
     private func configurePreview() {
         previewLayer = AVCaptureVideoPreviewLayer(session: session)
         // プレビューと撮影画像の範囲を一致させるため、アスペクトフィットを使用
@@ -189,24 +190,24 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         previewLayer.videoGravity = .resizeAspect
         previewLayer.frame = view.bounds
         view.layer.addSublayer(previewLayer)
-
+        
         // 三分割線レイヤー
         thirdsLayer.frame = view.bounds
         thirdsLayer.fillColor = UIColor.clear.cgColor
         thirdsLayer.strokeColor = UIColor.white.withAlphaComponent(0.6).cgColor
         thirdsLayer.lineWidth = 1.0
         view.layer.addSublayer(thirdsLayer)
-
+        
         // コーナーマーカー
         cornerLayer.frame = view.bounds
         cornerLayer.fillColor = UIColor.clear.cgColor
         cornerLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
         cornerLayer.lineWidth = 2.0
         view.layer.addSublayer(cornerLayer)
-
+        
         updateGridPath()
     }
-
+    
     private func updateGridPath() {
         // プレビューレイヤーの実際の表示領域を計算
         let previewBounds = previewLayer.bounds
@@ -221,7 +222,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         let y = actualFrameRect.origin.y
         let w = actualFrameRect.width
         let h = actualFrameRect.height
-
+        
         // 三分割線（実際の撮影領域内に描画）
         let thirdsPath = UIBezierPath()
         thirdsPath.move(to: CGPoint(x: x + w / 3.0, y: y))
@@ -233,7 +234,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         thirdsPath.move(to: CGPoint(x: x, y: y + h * 2.0 / 3.0))
         thirdsPath.addLine(to: CGPoint(x: x + w, y: y + h * 2.0 / 3.0))
         thirdsLayer.path = thirdsPath.cgPath
-
+        
         // コーナーマーカー（実際の撮影領域の四隅）
         let cornerPath = UIBezierPath()
         let markerLen: CGFloat = min(w, h) * 0.06 // 画面サイズに応じた長さ
@@ -317,7 +318,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         print("✅ Calculated frame: \(result)")
         return result
     }
-
+    
     func configureUI() {
         // キャプチャボタン
         let captureButton = UIButton(type: .system)
@@ -326,7 +327,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         captureButton.layer.cornerRadius = 32
         captureButton.addTarget(self, action: #selector(captureTapped), for: .touchUpInside)
         view.addSubview(captureButton)
-
+        
         // キャンセルボタン
         let cancelButton = UIButton(type: .system)
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
@@ -334,18 +335,18 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         cancelButton.setTitleColor(.white, for: .normal)
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
         view.addSubview(cancelButton)
-
+        
         NSLayoutConstraint.activate([
             captureButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             captureButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
             captureButton.widthAnchor.constraint(equalToConstant: 64),
             captureButton.heightAnchor.constraint(equalToConstant: 64),
-
+            
             cancelButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             cancelButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
         ])
     }
-
+    
     @objc private func captureTapped() {
         let settings = AVCapturePhotoSettings()
         settings.isHighResolutionPhotoEnabled = true
@@ -354,11 +355,11 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         }
         photoOutput.capturePhoto(with: settings, delegate: self)
     }
-
+    
     @objc private func cancelTapped() {
         onCancel?()
     }
-
+    
     // MARK: - AVCapturePhotoCaptureDelegate
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error = error {
@@ -413,12 +414,12 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     var onImageCaptured: ((UIImage) -> Void)?
     var onCancel: (() -> Void)?
-
+    
     private let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private var previewLayer: AVCaptureVideoPreviewLayer!
-
+    
     // グリッドとオーバーレイ用レイヤー
     private let thirdsLayer = CAShapeLayer()
     private let cornerLayer = CAShapeLayer()
@@ -448,20 +449,20 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
     // 分析結果保存用
     private var realtimeBoundingRects: [CGRect] = []
     private var realtimeCentroids: [CGPoint] = []
-
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
         configureSession()
         configurePreview()
         configureUI()
-
+        
         // セッションの実行は UI をブロックしないようにバックグラウンドで開始
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.session.startRunning()
         }
     }
-
+    
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // セッション停止もバックグラウンドで実行
@@ -469,28 +470,31 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
             self?.session.stopRunning()
         }
     }
-
+    
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer.frame = view.bounds
+        // 実際のプレビュー領域を計算
+        let actualFrameRect = calculateActualPreviewFrame()
+        
         // フレームを更新してからパスを再計算
         thirdsLayer.frame = view.bounds
         cornerLayer.frame = view.bounds
-        compositionPointsLayer.frame = view.bounds
-        binaryImageLayer.frame = view.bounds
-        analysisOverlayLayer.frame = view.bounds
-        boundingRectsLayer.frame = view.bounds
-        centroidsLayer.frame = view.bounds
+        compositionPointsLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
+        binaryImageLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
+        analysisOverlayLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
+        boundingRectsLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
+        centroidsLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
         adviceTextLayer.frame = CGRect(x: 20, y: view.safeAreaInsets.top + 90, width: view.bounds.width - 40, height: 80)
         
         updateGridPath()
     }
-
+    
     private func configureSession() {
         session.beginConfiguration()
         // プレビューと撮影画像の範囲を一致させるため、プリセットを調整
         session.sessionPreset = .photo
-
+        
         // カメラ入力
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
               let input = try? AVCaptureDeviceInput(device: device),
@@ -499,7 +503,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
             return
         }
         session.addInput(input)
-
+        
         // 写真出力
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
@@ -525,10 +529,10 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
                 }
             }
         }
-
+        
         session.commitConfiguration()
     }
-
+    
     private func configurePreview() {
         previewLayer = AVCaptureVideoPreviewLayer(session: session)
         // プレビューと撮影画像の範囲を一致させるため、アスペクトフィットを使用
@@ -536,14 +540,14 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         previewLayer.videoGravity = .resizeAspect
         previewLayer.frame = view.bounds
         view.layer.addSublayer(previewLayer)
-
+        
         // 三分割線レイヤー
         thirdsLayer.frame = view.bounds
         thirdsLayer.fillColor = UIColor.clear.cgColor
         thirdsLayer.strokeColor = UIColor.white.withAlphaComponent(0.6).cgColor
         thirdsLayer.lineWidth = 1.0
         view.layer.addSublayer(thirdsLayer)
-
+        
         // コーナーマーカー
         cornerLayer.frame = view.bounds
         cornerLayer.fillColor = UIColor.clear.cgColor
@@ -552,33 +556,34 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         view.layer.addSublayer(cornerLayer)
         
         // 構図点レイヤー（三分割点と中央点）
-        compositionPointsLayer.frame = view.bounds
+        let actualFrameRect = calculateActualPreviewFrame()
+        compositionPointsLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
         compositionPointsLayer.fillColor = UIColor.clear.cgColor
         view.layer.addSublayer(compositionPointsLayer)
         
         // 二値化画像レイヤー（検証用）
-        binaryImageLayer.frame = view.bounds
+        binaryImageLayer.frame = actualFrameRect // 実際のプレビュー範囲に合わせる
         binaryImageLayer.opacity = 0.0 // 初期は非表示
         // プレビューレイヤーと同じアスペクト設定を使用
-        binaryImageLayer.contentsGravity = .resizeAspect
+        binaryImageLayer.contentsGravity = .resize // リサイズのみ（アスペクト比を維持しない）
         view.layer.addSublayer(binaryImageLayer)
         
         // 分析結果オーバーレイ
-        analysisOverlayLayer.frame = view.bounds
+        analysisOverlayLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
         analysisOverlayLayer.fillColor = UIColor.clear.cgColor
         analysisOverlayLayer.strokeColor = UIColor.red.withAlphaComponent(0.8).cgColor
         analysisOverlayLayer.lineWidth = 3.0
         view.layer.addSublayer(analysisOverlayLayer)
         
         // 外接矩形レイヤー
-        boundingRectsLayer.frame = view.bounds
+        boundingRectsLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
         boundingRectsLayer.fillColor = UIColor.clear.cgColor
         boundingRectsLayer.strokeColor = UIColor.red.withAlphaComponent(0.8).cgColor
         boundingRectsLayer.lineWidth = 2.0
         view.layer.addSublayer(boundingRectsLayer)
         
         // 重心点レイヤー
-        centroidsLayer.frame = view.bounds
+        centroidsLayer.frame = actualFrameRect // 実際のプレビュー領域に合わせる
         centroidsLayer.fillColor = UIColor.blue.withAlphaComponent(0.8).cgColor
         centroidsLayer.strokeColor = UIColor.blue.withAlphaComponent(0.8).cgColor
         centroidsLayer.lineWidth = 2.0
@@ -592,10 +597,10 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         adviceTextLayer.alignmentMode = .center
         adviceTextLayer.isWrapped = true
         view.layer.addSublayer(adviceTextLayer)
-
+        
         updateGridPath()
     }
-
+    
     private func updateGridPath() {
         // プレビューレイヤーの実際の表示領域を計算
         let previewBounds = previewLayer.bounds
@@ -610,7 +615,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         let y = actualFrameRect.origin.y
         let w = actualFrameRect.width
         let h = actualFrameRect.height
-
+        
         // 三分割線（実際の撮影領域内に描画）
         let thirdsPath = UIBezierPath()
         thirdsPath.move(to: CGPoint(x: x + w / 3.0, y: y))
@@ -622,7 +627,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         thirdsPath.move(to: CGPoint(x: x, y: y + h * 2.0 / 3.0))
         thirdsPath.addLine(to: CGPoint(x: x + w, y: y + h * 2.0 / 3.0))
         thirdsLayer.path = thirdsPath.cgPath
-
+        
         // コーナーマーカー（実際の撮影領域の四隅）
         let cornerPath = UIBezierPath()
         let markerLen: CGFloat = min(w, h) * 0.06 // 画面サイズに応じた長さ
@@ -710,34 +715,32 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
     private func updateCompositionPoints() {
         // 実際のプレビュー領域を取得
         let actualFrameRect = calculateActualPreviewFrame()
-        let x = actualFrameRect.origin.x
-        let y = actualFrameRect.origin.y
         let w = actualFrameRect.width
         let h = actualFrameRect.height
         
         let pointsPath = UIBezierPath()
         let pointSize = min(w, h) * 0.025 // 点のサイズ
         
-        // 三分割法の交点（黄色の点）
+        // 三分割法の交点（レイヤー内座標系で計算）
         let thirds_points = [
-            CGPoint(x: x + w / 3, y: y + h / 3),
-            CGPoint(x: x + w * 2 / 3, y: y + h / 3),
-            CGPoint(x: x + w / 3, y: y + h * 2 / 3),
-            CGPoint(x: x + w * 2 / 3, y: y + h * 2 / 3)
+            CGPoint(x: w / 3, y: h / 3),
+            CGPoint(x: w * 2 / 3, y: h / 3),
+            CGPoint(x: w / 3, y: h * 2 / 3),
+            CGPoint(x: w * 2 / 3, y: h * 2 / 3)
         ]
         
         for point in thirds_points {
-            let circleRect = CGRect(x: point.x - pointSize/2, y: point.y - pointSize/2, 
-                                   width: pointSize, height: pointSize)
+            let circleRect = CGRect(x: point.x - pointSize/2, y: point.y - pointSize/2,
+                                    width: pointSize, height: pointSize)
             pointsPath.append(UIBezierPath(ovalIn: circleRect))
         }
         
         // 中央点（赤い点）を別のレイヤーとして扱う
         let centerPointsPath = UIBezierPath()
-        let centerPoint = CGPoint(x: x + w / 2, y: y + h / 2)
+        let centerPoint = CGPoint(x: w / 2, y: h / 2)
         let centerSize = min(w, h) * 0.03
         let centerRect = CGRect(x: centerPoint.x - centerSize/2, y: centerPoint.y - centerSize/2,
-                               width: centerSize, height: centerSize)
+                                width: centerSize, height: centerSize)
         centerPointsPath.append(UIBezierPath(ovalIn: centerRect))
         
         // 三分割点（黄色）
@@ -758,7 +761,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         centerLayer.lineWidth = 1.0
         compositionPointsLayer.addSublayer(centerLayer)
     }
-
+    
     func configureUI() {
         // キャプチャボタン
         let captureButton = UIButton(type: .system)
@@ -767,7 +770,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         captureButton.layer.cornerRadius = 32
         captureButton.addTarget(self, action: #selector(captureTapped), for: .touchUpInside)
         view.addSubview(captureButton)
-
+        
         // キャンセルボタン
         let cancelButton = UIButton(type: .system)
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
@@ -826,13 +829,13 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         binaryToggleButton.layer.cornerRadius = 8
         binaryToggleButton.addTarget(self, action: #selector(toggleBinaryDisplayTapped), for: .touchUpInside)
         view.addSubview(binaryToggleButton)
-
+        
         NSLayoutConstraint.activate([
             captureButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             captureButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
             captureButton.widthAnchor.constraint(equalToConstant: 64),
             captureButton.heightAnchor.constraint(equalToConstant: 64),
-
+            
             cancelButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             cancelButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             
@@ -864,7 +867,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
             binaryToggleButton.heightAnchor.constraint(equalToConstant: 32)
         ])
     }
-
+    
     @objc private func captureTapped() {
         let settings = AVCapturePhotoSettings()
         settings.isHighResolutionPhotoEnabled = true
@@ -873,7 +876,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         }
         photoOutput.capturePhoto(with: settings, delegate: self)
     }
-
+    
     @objc private func cancelTapped() {
         onCancel?()
     }
@@ -984,31 +987,27 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         // プレビューレイヤーのフレーム
         let previewBounds = previewLayer.bounds
         
+        // 実際のプレビュー領域を取得
+        let actualFrameRect = calculateActualPreviewFrame()
+        
         // Vision結果の実際のサイズ
         let visionSize = outputCIImage.extent.size
         
-        // プレビューレイヤーと同じresizeAspectの動作を再現
-        let scaleX = previewBounds.width / visionSize.width
-        let scaleY = previewBounds.height / visionSize.height
-        let scale = min(scaleX, scaleY) // AspectFitなので小さい方を使用
-        
-        // 中央揃えで配置
-        let scaledWidth = visionSize.width * scale
-        let scaledHeight = visionSize.height * scale
-        let offsetX = (previewBounds.width - scaledWidth) / 2
-        let offsetY = (previewBounds.height - scaledHeight) / 2
+        // 実際のプレビュー領域に合わせて変換
+        let scaleX = actualFrameRect.width / visionSize.width
+        let scaleY = actualFrameRect.height / visionSize.height
         
         // 変換を適用
-        let transform = CGAffineTransform(scaleX: scale, y: scale)
-            .concatenating(CGAffineTransform(translationX: offsetX, y: offsetY))
+        let transform = CGAffineTransform(scaleX: scaleX, y: scaleY)
+            .concatenating(CGAffineTransform(translationX: actualFrameRect.origin.x, y: actualFrameRect.origin.y))
         let transformedImage = outputCIImage.transformed(by: transform)
         
         let context = CIContext()
-        guard let cgImage = context.createCGImage(transformedImage, from: previewBounds) else { return }
+        guard let cgImage = context.createCGImage(transformedImage, from: actualFrameRect) else { return }
         let heatmapImage = UIImage(cgImage: cgImage)
         
         // 二値化処理
-        guard let binaryImage = binarizeImageForRealtime(heatmapImage, threshold: 0.05) else { return }
+        guard let binaryImage = binarizeImageForRealtime(heatmapImage, threshold: 0.2) else { return }
         
         // 二値化画像をレイヤーに設定（メインスレッドで実行）
         DispatchQueue.main.async { [weak self] in
@@ -1016,7 +1015,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         }
         
         // バウンディングボックス検出（リアルタイム用）
-        detectBoundingRectsRealtime(from: binaryImage, imageSize: previewBounds.size)
+        detectBoundingRectsRealtime(from: binaryImage, imageSize: actualFrameRect.size)
     }
     
     private func binarizeImageForRealtime(_ inputImage: UIImage, threshold: Float = 0.5) -> UIImage? {
@@ -1218,9 +1217,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
             return
         }
         
-        // 実際のフレーム内での構図点を計算
-        let x = actualFrame.origin.x
-        let y = actualFrame.origin.y
+        // オーバーレイレイヤー内での座標系で計算（actualFrameサイズと同じ）
         let w = actualFrame.width
         let h = actualFrame.height
         
@@ -1232,11 +1229,11 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         
         switch target {
         case .ruleOfThirds:
-            // 実際のフレーム内での三分割点を計算
-            let thirdX1 = x + w / 3
-            let thirdX2 = x + w * 2 / 3
-            let thirdY1 = y + h / 3
-            let thirdY2 = y + h * 2 / 3
+            // レイヤー内での三分割点を計算（0座標基準）
+            let thirdX1 = w / 3
+            let thirdX2 = w * 2 / 3
+            let thirdY1 = h / 3
+            let thirdY2 = h * 2 / 3
             
             let intersectionPoints = [
                 CGPoint(x: thirdX1, y: thirdY1),
@@ -1261,14 +1258,14 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
             adviceText = "三分割構図"
             
         case .centerComposition:
-            // 実際のフレームの中央点
-            targetPoint = CGPoint(x: x + w / 2, y: y + h / 2)
+            // レイヤーの中央点（0座標基準）
+            targetPoint = CGPoint(x: w / 2, y: h / 2)
             adviceText = "日の丸構図"
             
         case .bestComposition:
             // デフォルトは三分割構図
-            let thirdX1 = x + w / 3
-            let thirdY1 = y + h / 3
+            let thirdX1 = w / 3
+            let thirdY1 = h / 3
             targetPoint = CGPoint(x: thirdX1, y: thirdY1)
             adviceText = "最適構図"
         }
@@ -1424,7 +1421,7 @@ class AssistCameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
             return dy > 0 ? "下" : "上"
         }
     }
-
+    
     // MARK: - AVCapturePhotoCaptureDelegate
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error = error {
@@ -1598,8 +1595,8 @@ struct ContentView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                
-           
+            
+            
         }
         .padding(.top, 20)
     }
@@ -1714,7 +1711,7 @@ struct ContentView: View {
                     //.clipped()
                 } else {
                     ModernPlaceholderView()
-                        //.frame(height: 320)
+                    //.frame(height: 320)
                 }
             }
         }
@@ -1876,18 +1873,18 @@ struct ContentView: View {
             if let evaluation = compositionEvaluation {
                 compositionResultCard(evaluation)
             }
-
+            
             if !boundingRects.isEmpty {
                 detectionResultCard
             }
-
+            
             if originalImage != nil {
                 saveButton
                 resetButton
             }
         }
     }
-
+    
     @ViewBuilder
     private var saveButton: some View {
         Button(action: {
@@ -2006,17 +2003,17 @@ struct ContentView: View {
         }
         .padding(20)
         .background(
-            evaluation.overallScore >= 80 ? 
+            evaluation.overallScore >= 80 ?
             LinearGradient(colors: [Color(.systemBackground), scoreGradientColor(evaluation.overallScore)], startPoint: .topLeading, endPoint: .bottomTrailing) :
-            LinearGradient(colors: [Color(.systemBackground), Color(.systemBackground)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [Color(.systemBackground), Color(.systemBackground)], startPoint: .topLeading, endPoint: .bottomTrailing)
         )
         .cornerRadius(16)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(evaluation.overallScore >= 70 ? scoreGradientColor(evaluation.overallScore).opacity(0.3) : Color.clear, lineWidth: evaluation.overallScore >= 80 ? 2 : 1)
         )
-        .shadow(color: evaluation.overallScore >= 70 ? scoreGradientColor(evaluation.overallScore).opacity(0.2) : .black.opacity(0.1), 
-                radius: evaluation.overallScore >= 70 ? 12 : 8, 
+        .shadow(color: evaluation.overallScore >= 70 ? scoreGradientColor(evaluation.overallScore).opacity(0.2) : .black.opacity(0.1),
+                radius: evaluation.overallScore >= 70 ? 12 : 8,
                 x: 0, y: evaluation.overallScore >= 70 ? 6 : 4)
     }
     
@@ -2187,11 +2184,11 @@ struct ContentView: View {
                     
                     // 低解像度で顕著性マップを作成し、バウンディングボックス検出も低解像度で実行
                     if let heatmapImage = self.createSaliencyHeatmapImage(from: observation, targetSize: processingImage.size),
-                       let binaryImage = self.binarizeAlphaWithKernel(heatmapImage, threshold: 0.05) {
+                       let binaryImage = self.binarizeAlphaWithKernel(heatmapImage, threshold: 0.2) {
                         
                         // 表示用に元画像サイズの顕著性マップを作成
                         if let displayHeatmap = self.createSaliencyHeatmapImage(from: observation, targetSize: image.size),
-                           let displayBinary = self.binarizeAlphaWithKernel(displayHeatmap, threshold: 0.05) {
+                           let displayBinary = self.binarizeAlphaWithKernel(displayHeatmap, threshold: 0.2) {
                             self.saliencyHeatMapImage = displayBinary
                             self.binaryImage = displayBinary
                         } else {
@@ -2528,7 +2525,7 @@ struct ContentView: View {
         resetAnalysisData()
         selectedItem = nil
     }
-
+    
     // 写真を写真ライブラリに保存する
     func saveImageToPhotos(_ image: UIImage?) {
         guard let image = image else {
@@ -2536,7 +2533,7 @@ struct ContentView: View {
             showingAlert = true
             return
         }
-
+        
         // 写真ライブラリのアクセス権を確認し、保存する
         PHPhotoLibrary.requestAuthorization { status in
             switch status {
@@ -2820,12 +2817,12 @@ struct AssistCameraCard: View {
         .frame(maxWidth: .infinity)
         .frame(height: 100)
         .background(
-            isAvailable ? 
-                LinearGradient(
-                    colors: [.orange, .red],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ) :
+            isAvailable ?
+            LinearGradient(
+                colors: [.orange, .red],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ) :
                 LinearGradient(
                     colors: [.gray, .gray],
                     startPoint: .topLeading,
@@ -3118,7 +3115,7 @@ struct EnhancedImageDisplayView: View {
 
 struct UnprocessedImageView: View {
     let unprocessedImage: UIImage
-
+    
     var body: some View {
         Image(uiImage: unprocessedImage)
             .resizable()
@@ -3128,7 +3125,7 @@ struct UnprocessedImageView: View {
 
 struct BinaryImageView: View {
     let binaryImage: UIImage
-
+    
     var body: some View {
         Image(uiImage: binaryImage)
             .resizable()
@@ -3139,25 +3136,25 @@ struct BinaryImageView: View {
 struct OriginalImageView: View {
     let originalImage: UIImage
     let saliencyHeatMapImage: UIImage?
-
+    
     var body: some View {
         ZStack {
             Image(uiImage: originalImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-
+            
             HeatmapOverlay(heatmapImage: saliencyHeatMapImage)
         }
     }
 }
-               
+
 
 
 
 
 struct HeatmapOverlay: View {
     let heatmapImage: UIImage?
-
+    
     var body: some View {
         Group {
             if let heatmapImage = heatmapImage {
@@ -3175,20 +3172,20 @@ struct BoundingRectsOverlay: View {
     let show: Bool
     let rects: [CGRect] // in original image coordinate space
     let imageSize: CGSize
-
+    
     var body: some View {
         GeometryReader { geo in
             if show {
                 let scaleX = geo.size.width / imageSize.width
                 let scaleY = geo.size.height / imageSize.height
-
+                
                 ForEach(Array(rects.enumerated()), id: \.offset) { _, rect in
                     // Map rect from original image size -> view size
                     let r = CGRect(x: rect.origin.x * scaleX,
                                    y: rect.origin.y * scaleY,
                                    width: rect.size.width * scaleX,
                                    height: rect.size.height * scaleY)
-
+                    
                     Path { path in
                         path.addRect(r)
                     }
@@ -3203,13 +3200,13 @@ struct BoundingRectsOverlay: View {
 
 struct CompositionGridOverlay: View {
     let show: Bool
-
+    
     var body: some View {
         GeometryReader { geo in
             if show {
                 let w = geo.size.width
                 let h = geo.size.height
-
+                
                 ZStack {
                     // 三分割法の線
                     Path { path in
@@ -3225,7 +3222,7 @@ struct CompositionGridOverlay: View {
                     .stroke(Color.white.opacity(0.85), lineWidth: 1.2)
                     .blendMode(.normal)
                     .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
-
+                    
                     // 三分割法の交点
                     ForEach(0..<4, id: \.self) { index in
                         let points = [
@@ -3243,7 +3240,7 @@ struct CompositionGridOverlay: View {
                             .position(points[index])
                             .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
                     }
-
+                    
                     // 中央点
                     Circle()
                         .fill(Color.red)
@@ -3251,7 +3248,7 @@ struct CompositionGridOverlay: View {
                         .overlay(Circle().stroke(Color.white, lineWidth: 1.0))
                         .position(x: w / 2, y: h / 2)
                         .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-
+                    
                     // 凡例
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
@@ -3282,13 +3279,13 @@ struct CentroidsOverlay: View {
     let show: Bool
     let centroids: [CGPoint] // in original image coordinate space
     let imageSize: CGSize
-
+    
     var body: some View {
         GeometryReader { geo in
             if show {
                 let scaleX = geo.size.width / imageSize.width
                 let scaleY = geo.size.height / imageSize.height
-
+                
                 ForEach(Array(centroids.enumerated()), id: \.offset) { _, pt in
                     let mapped = CGPoint(x: pt.x * scaleX, y: pt.y * scaleY)
                     Circle()
@@ -3309,24 +3306,24 @@ struct VisualAdviceOverlay: View {
     let show: Bool
     let advices: [VisualAdvice]
     let imageSize: CGSize
-
+    
     var body: some View {
         GeometryReader { geo in
             if show {
                 let scaleX = geo.size.width / imageSize.width
                 let scaleY = geo.size.height / imageSize.height
-
+                
                 ForEach(Array(advices.enumerated()), id: \.offset) { index, advice in
                     // Draw arrow from currentPosition to targetPosition (if available)
                     if let target = advice.targetPosition {
                         let from = CGPoint(x: advice.currentPosition.x * scaleX,
                                            y: advice.currentPosition.y * scaleY)
                         let to = CGPoint(x: target.x * scaleX, y: target.y * scaleY)
-
+                        
                         ArrowShape(from: from, to: to)
                             .stroke(Color.green.opacity(0.95), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                             .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
-
+                        
                         // Message bubble near the arrow head
                         Text(advice.message)
                             .font(.caption)
@@ -3356,26 +3353,26 @@ struct VisualAdviceOverlay: View {
 struct ArrowShape: Shape {
     var from: CGPoint
     var to: CGPoint
-
+    
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: from)
         path.addLine(to: to)
-
+        
         // Arrow head
         let angle = atan2(to.y - from.y, to.x - from.x)
         let headLength: CGFloat = 12
         let headAngle: CGFloat = .pi / 6
-
+        
         let p1 = CGPoint(x: to.x - cos(angle - headAngle) * headLength,
                          y: to.y - sin(angle - headAngle) * headLength)
         let p2 = CGPoint(x: to.x - cos(angle + headAngle) * headLength,
                          y: to.y - sin(angle + headAngle) * headLength)
-
+        
         path.move(to: p1)
         path.addLine(to: to)
         path.addLine(to: p2)
-
+        
         return path
     }
 }
